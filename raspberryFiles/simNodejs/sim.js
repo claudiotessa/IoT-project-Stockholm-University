@@ -1,7 +1,7 @@
 
 const http = require('http')
 
-var lastWattage =
+let lastWattage =
 {
   "date": null,
   "wattage": 1.2 
@@ -46,7 +46,7 @@ const datasend = http.createServer(function(request, response) {
 
 const port = 3000
 const port2 = 4000
-const host = '127.0.0.1'
+const host = '0.0.0.0'
 datarecieve.listen(port, host)
 console.log(`Listening for data at http://${host}:${port}`)
 datasend.listen(port2, host)
