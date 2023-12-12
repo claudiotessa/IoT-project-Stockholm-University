@@ -14,7 +14,7 @@ import subprocess
 broker = "test.mosquitto.org"	# Broker 
 
 pub_topic = "iotProject/sensors" #send data of sensor
-sub_topic = ["iotProject/devices", "iotProject/file"] #control for the change in the actuator status
+sub_topic = ["iotProject/devices"] #control for the change in the actuator status
 ############### Sensor section ##################
 def get_wattage():
 
