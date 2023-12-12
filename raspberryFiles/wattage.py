@@ -23,8 +23,8 @@ def get_wattage():
     x = requests.post(url, json = myobj)
     print(x.text)
     y = json.loads(x.text)
-    f = open('detections.csv', 'w')
-    writer = csv.writer(f)
+    f = open('detections.csv', 'a')
+    writer = csv.writer(f, lineterminator = '\n')
     writer.writerow([y["date"], str(y["wattage"])])
     f.close()
     return y

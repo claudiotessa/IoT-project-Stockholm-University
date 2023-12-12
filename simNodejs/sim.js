@@ -37,7 +37,7 @@ const datasend = http.createServer(function(request, response) {
     });
     request.on('end', function() {
       console.log('Body: ' + body);
-      lastWattage["date"]=new Date().toDateString();
+      lastWattage["date"]=new Date(new Date().getTime());
       response.writeHead(200, {'Content-Type': 'application/json'});
       response.end(JSON.stringify(lastWattage));
     })
