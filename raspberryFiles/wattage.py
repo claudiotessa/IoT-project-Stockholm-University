@@ -13,7 +13,7 @@ import os
 broker = "test.mosquitto.org"	# Broker 
 
 pub_topic = "iotProject/sensors" #send data of sensor
-sub_topic = ["iotProject/devices"] #control for the change in the actuator status
+sub_topic = ["iotProject/devices", "iotProject/files"] #control for the change in the actuator status
 
 # logfile directory
 csvfile = 'detections.csv'
@@ -26,7 +26,7 @@ def get_wattage():
     url = "http://192.168.1.124:4000" #change depending on who is being the simulator
     myobj = {'pi': "broker"}
     x = requests.post(url, json = myobj)
-    #print(x.text)
+    print("writing to file: ", x.text)
     y = json.loads(x.text)
     f = open(csvfile, 'a')
     writer = csv.writer(f, lineterminator = '\n')
@@ -57,10 +57,13 @@ def send_file(file, host, port, separator="<SEPARATOR>", buffersize=4096) :
 
 # when connecting to mqtt do this;
 def on_connect(client, userdata, flags, rc):
-	if rc==0:
-		print("Connection established. Code: "+str(rc))
-	else:
-		print("Connection failed. Code: " + str(rc))
+    if rc==0:
+        print("Connection established. Code: "+str(rc))
+        for i in sub_topic :
+            print("subscribing to topic: ", i)
+            client.subscribe(i)
+    else:
+        print("Connection failed. Code: " + str(rc))
 		
 def on_publish(client, userdata, mid):
     print("Published: " + str(mid))
@@ -81,19 +84,21 @@ def on_log(client, userdata, level, buf):		# Message is in buf
 # {"cmd":"getloglog", "id": id number, "host": host ip, "port": host port to connect, "separator": "<SEPARATOR>", "buffer": int buffersize }
 
 def on_message(client, userdata, message): 
-    data = str(message.payload.decode("utf-8"))
-    print("message received ", str(message.payload.decode("utf-8")))
-    print("\nmessage topic=",message.topic)
-    print("\nmessage qos=",message.qos)
-    print("\nmessage retain flag=",message.retain)
     try:
-        dict_command = json.loads(data)
+        data = str(message.payload.decode("utf-8"))
+        print("message received ", data)
+        print("\nmessage topic=",message.topic)
+        print("\nmessage qos=",message.qos)
+        print("\nmessage retain flag=",message.retain)
+        dict_command = json.loads(data) 
         if dict_command["cmd"] == "switch" :
-            subprocess.run(["tdtool", "--"+dict_command["onoff"], dict_command["id"]])
+            #subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
+            print("switch success")
         elif dict_command["cmd"] == "getlog" :
-            send_file(file=csvfile, host=dict_command["host"], port=dict_command["port"], separator= dict_command["separator"], buffersize=int(dict_command["buffer"]))
+            print("file success")
+            #send_file(file=csvfile, host=dict_command["host"], port=dict_command["port"], separator= dict_command["separator"], buffersize=int(dict_command["buffer"])) #uncomment only in raspberry
     except ValueError as error:
-        print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        print(data," ", error, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
         return error
 	
 # Connect functions for MQTT
@@ -107,12 +112,11 @@ client.on_message= on_message
 # Connect to MQTT 
 print("Attempting to connect to broker " + broker)
 client.connect(broker)	# Broker address, port and keepalive (maximum period in seconds allowed between communications with the broker)
-for i in sub_topic :
-    client.subscribe(i)
 client.loop_start()
 
 # Loop that publishes message
-#while True:
-data_to_send = get_wattage()
-client.publish(pub_topic, str(data_to_send))
-time.sleep(2.0)	# Set delay  """
+while True:
+    data_to_send = get_wattage()
+    ret = client.publish(pub_topic, str(data_to_send))
+    print(ret)
+    time.sleep(2.0)	# Set delay  """

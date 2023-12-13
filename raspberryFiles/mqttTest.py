@@ -15,12 +15,13 @@ import os
 broker = "test.mosquitto.org"	# Broker 
 
 pub_topic = "iotProject/sensors" #send data of sensor
-sub_topic = ["iotProject/devices"]
+sub_topic = ["iotProject/devices", "iotProject/files"]
 
 # when connecting to mqtt do this;
 def on_connect(client, userdata, flags, rc):
 	if rc==0:
 		print("Connection established. Code: "+str(rc))
+		client.subscribe(pub_topic)
 	else:
 		print("Connection failed. Code: " + str(rc))
 		
@@ -44,7 +45,7 @@ def on_log(client, userdata, level, buf):		# Message is in buf
 
 def on_message(client, userdata, message): 
     data = str(message.payload.decode("utf-8"))
-    print("message received ", str(message.payload.decode("utf-8")))
+    print("message received ", data)
     print("\nmessage topic=",message.topic)
     print("\nmessage qos=",message.qos)
     print("\nmessage retain flag=",message.retain)
@@ -62,5 +63,8 @@ print("Attempting to connect to broker " + broker)
 client.connect(broker)
 client.loop_start()
 
-client.publish(sub_topic[0], "{\"cmd\":\"switch\", \"id\": 1, \"onoff\": \"off\"}")
-# Loop that publishes message
+client.publish(sub_topic[0], '{"cmd":"switch", "id": 1, "onoff": "on"}')
+#client.publish(sub_topic[1], '{"cmd":"getloglog", "id": 1, "host": 192.168.1.124, "port": 5001, "separator": "<SEPARATOR>", "buffer": 4096 }')
+
+while True:
+    time.sleep(2.0)
