@@ -3,8 +3,9 @@ const http = require('http')
 
 var lastWattage =
 {
+  "id": 1,
   "date": null,
-  "wattage": 1.2 
+  "wattage": 1.2,
 }
 const datarecieve = http.createServer(function(request, response) {
   console.dir(request.param)
@@ -20,7 +21,7 @@ const datarecieve = http.createServer(function(request, response) {
         console.log('Body: ' + body)
         if(typeof body === 'string' || body instanceof String)
           body=JSON.parse(body)
-        
+
         lastWattage=body
         
         response.writeHead(200, {'Content-Type': 'text/html'})

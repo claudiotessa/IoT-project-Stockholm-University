@@ -18,7 +18,8 @@ sub_topic = ["iotProject/devices", "iotProject/files"] #control for the change i
 # logfile directory
 csvfile = 'detections.csv'
 
-#file transfer constants
+#actuator dictionary for now just 1 dict, later will be a class that will index and manage multiple actuators
+actuator_dict = {"date": None, "wattage": 1.2, "onoff": "on"}
 
 ############### Sensor section ##################
 
@@ -30,7 +31,7 @@ def get_wattage():
     y = json.loads(x.text)
     f = open(csvfile, 'a')
     writer = csv.writer(f, lineterminator = '\n')
-    writer.writerow([y["date"], str(y["wattage"])])
+    writer.writerow([str(y["id"]), y["date"], str(y["wattage"])])
     f.close()
     return y
 
@@ -59,6 +60,13 @@ def send_file(file, host, port, separator="<SEPARATOR>", buffersize=4096) :
 def on_connect(client, userdata, flags, rc):
     if rc==0:
         print("Connection established. Code: "+str(rc))
+        """ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
+        list_of_dev= ret.stdout.split("\n")
+        #for now we know it's just one, later we will have to also check the id a$
+        x=list_of_dev[1].split("\t")
+        print(x)
+        actuator_dict["onoff"] = x[len(x)-1].lower()"""
+        print(actuator_dict)
         for i in sub_topic :
             print("subscribing to topic: ", i)
             client.subscribe(i)
@@ -83,7 +91,7 @@ def on_log(client, userdata, level, buf):		# Message is in buf
 # if command is to send the log file of a specific powersocket it has to be structured like this in order to send it through FTP
 # {"cmd":"getloglog", "id": id number, "host": host ip, "port": host port to connect, "separator": "<SEPARATOR>", "buffer": int buffersize }
 
-def on_message(client, userdata, message): 
+def on_message(client, userdata, message):
     try:
         data = str(message.payload.decode("utf-8"))
         print("message received ", data)
@@ -93,6 +101,7 @@ def on_message(client, userdata, message):
         dict_command = json.loads(data) 
         if dict_command["cmd"] == "switch" :
             #subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
+            actuator_dict["onoff"]=dict_command["onoff"]
             print("switch success")
         elif dict_command["cmd"] == "getlog" :
             print("file success")
@@ -116,7 +125,11 @@ client.loop_start()
 
 # Loop that publishes message
 while True:
-    data_to_send = get_wattage()
-    ret = client.publish(pub_topic, str(data_to_send))
+    data_to_send = get_wattage() #dictionary
+    for i in list(data_to_send.keys()) :
+        actuator_dict[i]=data_to_send[i]
+    
+    # format sent {'id': 1, 'date': '2023-12-13T12:52:55.562Z', 'wattage': 1.2, 'onoff': 'on'}
+    ret = client.publish(pub_topic, str(actuator_dict))
     print(ret)
     time.sleep(2.0)	# Set delay  """
