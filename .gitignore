@@ -31,3 +31,5 @@ google-services.json
 
 # Android Profiling
 *.hprof
+raspberryFiles/__pycache__/actuatorDict.cpython-312.pyc
+detections.csv

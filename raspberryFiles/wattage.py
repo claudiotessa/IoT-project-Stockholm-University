@@ -5,9 +5,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import time
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
-import subprocess
 import socket
-import os
+import subprocess
+import multiprocessing
+from actuatorDict import ActuatorDict
 
 # Set MQTT broker and topic
 broker = "test.mosquitto.org"	# Broker 
@@ -19,40 +20,52 @@ sub_topic = ["iotProject/devices", "iotProject/files"] #control for the change i
 csvfile = 'detections.csv'
 
 #actuator dictionary for now just 1 dict, later will be a class that will index and manage multiple actuators
-actuator_dict = {"date": None, "wattage": 1.2, "onoff": "on"}
+actuator_dict = ActuatorDict()
 
 ############### Sensor section ##################
 
 def get_wattage():
-    url = "http://192.168.1.124:4000" #change depending on who is being the simulator
+    url = "http://192.168.255.250:4000" #change depending on who is being the simulator
     myobj = {'pi': "broker"}
     x = requests.post(url, json = myobj)
     print("writing to file: ", x.text)
-    y = json.loads(x.text)
-    f = open(csvfile, 'a')
-    writer = csv.writer(f, lineterminator = '\n')
-    writer.writerow([str(y["id"]), y["date"], str(y["wattage"])])
-    f.close()
-    return y
+    list_of_dev = json.loads(x.text)
+    for y in list_of_dev :
+        f = open(csvfile+str(y["id"]), 'a')
+        writer = csv.writer(f, lineterminator = '\n')
+        writer.writerow([str(y["id"]), y["date"], str(y["wattage"])])
+        f.close()
+    return list_of_dev
 
 ############### FTP section ##################
 
-def send_file(file, host, port, separator="<SEPARATOR>", buffersize=4096) :
-    filesize = os.path.getsize(file)
-    s = socket.socket()
-    s.connect((host, port))
-    s.send(f"{file}{separator}{filesize}".encode())
-    with open(file, "rb") as f:
-        while True:
-            # read the bytes from the file
-            bytes_read = f.read(buffersize)
-            if not bytes_read:
-                # file transmitting is done
-                break
-            # we use sendall to assure transimission in 
-            # busy networks
-            s.sendall(bytes_read)
-    s.close()
+def send_file(host, port, separator="<SEPARATOR>", size=4096, format = "utf-8") :
+    ADDR=(host, port)
+    print("listnening for file requests")
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+ 
+    server.bind(ADDR)
+    server.listen()
+
+    print("[LISTENING] Server is listening.")
+ 
+    while True:
+        conn, addr = server.accept()
+        print(f"[NEW CONNECTION] {addr} connected.")
+
+        filename = conn.recv(size).decode(format)
+        print("[RECV] Receiving the filename.")
+        file = open(filename, "r")
+        data = file.read()
+        conn.send("Filename received.".encode(format))
+
+        server.send(data.encode(format))
+        msg = server.recv(size).decode(format)
+        print(f"[SERVER]: {msg}")
+
+        file.close()
+        conn.close()
+        print(f"[DISCONNECTED] {addr} disconnected.")
 
 ############### MQTT section ##################
 
@@ -60,13 +73,25 @@ def send_file(file, host, port, separator="<SEPARATOR>", buffersize=4096) :
 def on_connect(client, userdata, flags, rc):
     if rc==0:
         print("Connection established. Code: "+str(rc))
-        """ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
-        list_of_dev= ret.stdout.split("\n")
-        #for now we know it's just one, later we will have to also check the id a$
-        x=list_of_dev[1].split("\t")
-        print(x)
-        actuator_dict["onoff"] = x[len(x)-1].lower()"""
-        print(actuator_dict)
+        
+        ######## gathering actuators
+
+        #uncomment only in raspberry
+        #ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
+        #list_of_dev= ret.stdout.split("\n") 
+
+        #comment only in raspberry
+        ret= "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tON\n\n"
+        list_of_dev=ret.split("\n")
+        
+        n_devices = int(list_of_dev[0].split()[-1]) #this line extracts x from the string "Number of devices: x", 
+
+        for i in range(1,n_devices+1) :
+            x=list_of_dev[i].split("\t")
+            actuator_dict.add(id=int(x[0]), name=x[1].lower(),onoff=x[-1].lower())
+        print(actuator_dict.get_act(1))
+        ######### topic subscription
+        
         for i in sub_topic :
             print("subscribing to topic: ", i)
             client.subscribe(i)
@@ -88,8 +113,6 @@ def on_log(client, userdata, level, buf):		# Message is in buf
 #when getting message from a subscribed topic
 # if command is to switch on or off message has to be structured like this
 # {"cmd":"switch", "id": id number, "onoff": on\off status}
-# if command is to send the log file of a specific powersocket it has to be structured like this in order to send it through FTP
-# {"cmd":"getloglog", "id": id number, "host": host ip, "port": host port to connect, "separator": "<SEPARATOR>", "buffer": int buffersize }
 
 def on_message(client, userdata, message):
     try:
@@ -101,35 +124,56 @@ def on_message(client, userdata, message):
         dict_command = json.loads(data) 
         if dict_command["cmd"] == "switch" :
             #subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
-            actuator_dict["onoff"]=dict_command["onoff"]
+            x= actuator_dict.get_act(dict_command["id"])
+            actuator_dict.set_act(id=x[id], noff=dict_command["onoff"])
             print("switch success")
-        elif dict_command["cmd"] == "getlog" :
-            print("file success")
-            #send_file(file=csvfile, host=dict_command["host"], port=dict_command["port"], separator= dict_command["separator"], buffersize=int(dict_command["buffer"])) #uncomment only in raspberry
+
     except ValueError as error:
         print(data," ", error, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
         return error
-	
-# Connect functions for MQTT
-client = mqtt.Client()
-client.on_connect = on_connect
-client.on_disconnect = on_disconnect
-client.on_publish = on_publish
-client.on_log = on_log
-client.on_message= on_message
 
-# Connect to MQTT 
-print("Attempting to connect to broker " + broker)
-client.connect(broker)	# Broker address, port and keepalive (maximum period in seconds allowed between communications with the broker)
-client.loop_start()
+def run_mqtt() :
+    # Connect functions for MQTT
+    client = mqtt.Client()
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+    client.on_publish = on_publish
+    client.on_log = on_log
+    client.on_message= on_message
 
-# Loop that publishes message
-while True:
-    data_to_send = get_wattage() #dictionary
-    for i in list(data_to_send.keys()) :
-        actuator_dict[i]=data_to_send[i]
-    
-    # format sent {'id': 1, 'date': '2023-12-13T12:52:55.562Z', 'wattage': 1.2, 'onoff': 'on'}
-    ret = client.publish(pub_topic, str(actuator_dict))
-    print(ret)
-    time.sleep(2.0)	# Set delay  """
+    # Connect to MQTT 
+    print("Attempting to connect to broker " + broker)
+    client.connect(broker)	# Broker address, port and keepalive (maximum period in seconds allowed between communications with the broker)
+    client.loop_start()
+
+    # Loop that publishes message
+    while True:
+        time.sleep(2.0) # Set delay  """
+        data_to_send = get_wattage() #dictionary
+        for i in data_to_send :
+            ind= actuator_dict.get_act(i["id"])["index"]
+            actuator_dict.set_act(ind, dictio=i)
+        # format sent [{'id': 1, 'date': '2023-12-13T12:52:55.562Z', 'wattage': 1.2, 'onoff': 'on'},...]
+        
+        ret = client.publish(pub_topic, str(data_to_send))
+        print(ret)
+        	
+
+############### starting up section ##################
+if __name__ == '__main__':
+    ftp_thread = multiprocessing.Process(target=send_file, args=("192.168.255.250",2000), daemon=True)
+    mqtt_thread = multiprocessing.Process(target=run_mqtt, daemon=True)
+
+
+
+    #ftp_thread.start()
+    mqtt_thread.start()
+
+    try:
+        while 1:
+            time.sleep(.1)
+    except KeyboardInterrupt:
+        print( "attempting to close threads.")
+        #ftp_thread.terminate()
+        mqtt_thread.terminate()
+        print("threads successfully closed")
