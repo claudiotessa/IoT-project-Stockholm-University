@@ -1,14 +1,15 @@
 import requests
 import csv
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import time
 import paho.mqtt.client as mqtt
-import paho.mqtt.publish as publish
 import socket
 import subprocess
 import multiprocessing
 from actuatorDict import ActuatorDict
+import pandas as pd
+from sklearn.cluster import MiniBatchKMeans
+from sklearn import svm
 
 # Set MQTT broker and topic
 broker = "test.mosquitto.org"	# Broker 
@@ -17,10 +18,44 @@ pub_topic = "iotProject/sensors" #send data of sensor
 sub_topic = ["iotProject/devices", "iotProject/files"] #control for the change in the actuator status
 
 # logfile directory
-csvfile = 'detections.csv'
+csvfile = 'detections'
 
 #actuator dictionary for now just 1 dict, later will be a class that will index and manage multiple actuators
 actuator_dict = ActuatorDict()
+
+############### Learning section ##################
+
+    ## cluster data based only off the wattage and assign to each data a cluster, then learn the data through a classifier
+def find_high_low(id:int):
+    month=time.localtime().tm_mon-1
+    year=time.localtime().tm_year
+    if(month==0):
+        month=12
+        year-=1
+    df = pd.read_csv(str(month)+'-'+str(year)+'detections'+str(id)+'.csv')
+    print(df.columns)
+    df.drop('id', axis=1, inplace=True)
+    to_fit=df.drop('date', axis=1)
+    kmeans = MiniBatchKMeans(n_clusters=2, n_init='auto', verbose=1).fit_predict(to_fit) #trying using something less computationally expensive
+    #df = df.assign(cluster=kmeans)
+    #print(df.iloc[34952])
+
+    #shifting each days in order to compare evry detections by day of gathering and not by date too
+    print("normalizing")
+    first_of_month=df.iloc[0]['date']
+    df['date'] = df['date']-(86400000*((df['date']-first_of_month)//86400000))
+    print(df.iloc[-1]['date'])
+    # sec_from_start=0
+    # for i in range(len(df)):
+    #    sec_from_start+=2000
+    #    to_sub= int((sec_from_start)/86400000) #this leaves only the integer part of the division
+    #    df.at[i,"date"]-=86400000*to_sub
+    print("training svm")
+    SVM = svm.SVC(verbose=True)
+    SVM.fit(df, kmeans)
+    print(SVM.support_vectors_)
+
+    
 
 ############### Sensor section ##################
 
@@ -30,8 +65,15 @@ def get_wattage():
     x = requests.post(url, json = myobj)
     print("writing to file: ", x.text)
     list_of_dev = json.loads(x.text)
+    month=time.localtime().tm_mon + "-" + time.localtime().tm_year
+    file_name= month+csvfile+str(y["id"])+".csv"
+        
     for y in list_of_dev :
-        f = open(csvfile+str(y["id"]), 'a')
+        try:
+            f = open(file_name, 'x')
+            f.writelines(["id,date,wattage\n"])
+        except :
+            f = open(file_name, 'a')
         writer = csv.writer(f, lineterminator = '\n')
         writer.writerow([str(y["id"]), y["date"], str(y["wattage"])])
         f.close()
@@ -68,6 +110,22 @@ def send_file(host, port, separator="<SEPARATOR>", size=4096, format = "utf-8") 
         print(f"[DISCONNECTED] {addr} disconnected.")
 
 ############### MQTT section ##################
+def gather_actuators():
+    #uncomment only in raspberry
+    #ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
+    #list_of_dev= ret.stdout.split("\n") 
+
+    #comment only in raspberry
+    ret= "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tON\n\n"
+    list_of_dev=ret.split("\n")
+    
+    n_devices = int(list_of_dev[0].split()[-1]) #this line extracts x from the string "Number of devices: x", 
+
+    for i in range(1,n_devices+1) :
+        x=list_of_dev[i].split("\t")
+        actuator_dict.add(id=int(x[0]), name=x[1].lower(),onoff=x[-1].lower())
+    print(actuator_dict.get_act(1))
+    ######### topic subscription
 
 # when connecting to mqtt do this;
 def on_connect(client, userdata, flags, rc):
@@ -75,22 +133,7 @@ def on_connect(client, userdata, flags, rc):
         print("Connection established. Code: "+str(rc))
         
         ######## gathering actuators
-
-        #uncomment only in raspberry
-        #ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
-        #list_of_dev= ret.stdout.split("\n") 
-
-        #comment only in raspberry
-        ret= "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tON\n\n"
-        list_of_dev=ret.split("\n")
-        
-        n_devices = int(list_of_dev[0].split()[-1]) #this line extracts x from the string "Number of devices: x", 
-
-        for i in range(1,n_devices+1) :
-            x=list_of_dev[i].split("\t")
-            actuator_dict.add(id=int(x[0]), name=x[1].lower(),onoff=x[-1].lower())
-        print(actuator_dict.get_act(1))
-        ######### topic subscription
+        gather_actuators()
         
         for i in sub_topic :
             print("subscribing to topic: ", i)
@@ -124,8 +167,7 @@ def on_message(client, userdata, message):
         dict_command = json.loads(data) 
         if dict_command["cmd"] == "switch" :
             #subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
-            x= actuator_dict.get_act(dict_command["id"])
-            actuator_dict.set_act(id=x[id], noff=dict_command["onoff"])
+            actuator_dict.set_act(id=dict_command["id"], dictio={"onoff":dict_command["onoff"]})
             print("switch success")
 
     except ValueError as error:
@@ -153,7 +195,7 @@ def run_mqtt() :
         for i in data_to_send :
             ind= actuator_dict.get_act(i["id"])["index"]
             actuator_dict.set_act(ind, dictio=i)
-        # format sent [{'id': 1, 'date': '2023-12-13T12:52:55.562Z', 'wattage': 1.2, 'onoff': 'on'},...]
+        # format sent [{'id': 1, 'date': milliseconds since epoch, 'wattage': 1.2, 'onoff': 'on'},...]
         
         ret = client.publish(pub_topic, str(data_to_send))
         print(ret)
@@ -163,11 +205,12 @@ def run_mqtt() :
 if __name__ == '__main__':
     ftp_thread = multiprocessing.Process(target=send_file, args=("192.168.255.250",2000), daemon=True)
     mqtt_thread = multiprocessing.Process(target=run_mqtt, daemon=True)
-
+    reasoning_thread= multiprocessing.Process(target=find_high_low, args=(1,), daemon=True)
 
 
     #ftp_thread.start()
-    mqtt_thread.start()
+    #mqtt_thread.start()
+    reasoning_thread.start()
 
     try:
         while 1:
@@ -175,5 +218,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print( "attempting to close threads.")
         #ftp_thread.terminate()
-        mqtt_thread.terminate()
+        #mqtt_thread.terminate()
+        reasoning_thread.terminate()
         print("threads successfully closed")
+    

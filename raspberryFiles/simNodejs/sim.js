@@ -1,4 +1,3 @@
-
 const http = require('http')
 
 var lastWattage =
@@ -47,7 +46,7 @@ const datasend = http.createServer(function(request, response) {
     request.on('end', function() {
       console.log('Body: ' + body);
       console.log(lastWattage);
-      for(var i=0; i<lastWattage.length; i++) lastWattage[i]["date"]=new Date(new Date().getTime());
+      for(var i=0; i<lastWattage.length; i++) lastWattage[i]["date"]=new Date().now();
       response.writeHead(200, {'Content-Type': 'application/json'});
       response.end(JSON.stringify(lastWattage));
     })
