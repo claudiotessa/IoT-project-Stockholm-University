@@ -1,15 +1,27 @@
-import requests
 import csv
 import json
-import time
+
+import requests
 import paho.mqtt.client as mqtt
 import socket
+
+import time
 import subprocess
 import multiprocessing
+
 from actuatorDict import ActuatorDict
+
 import pandas as pd
+
 from sklearn.cluster import MiniBatchKMeans
 from sklearn import svm
+from sklearn.linear_model import Perceptron
+import sklearn.metrics as metr
+
+import matplotlib.pyplot as plt
+from sklearn.inspection import DecisionBoundaryDisplay
+
+import joblib
 
 # Set MQTT broker and topic
 broker = "test.mosquitto.org"	# Broker 
@@ -45,30 +57,53 @@ def find_high_low(id:int):
     first_of_month=df.iloc[0]['date']
     df['date'] = df['date']-(86400000*((df['date']-first_of_month)//86400000))
     print(df.iloc[-1]['date'])
-    # sec_from_start=0
-    # for i in range(len(df)):
-    #    sec_from_start+=2000
-    #    to_sub= int((sec_from_start)/86400000) #this leaves only the integer part of the division
-    #    df.at[i,"date"]-=86400000*to_sub
-    print("training svm")
-    SVM = svm.SVC(verbose=True)
-    SVM.fit(df, kmeans)
-    print(SVM.support_vectors_)
-
     
+    print("training svm")
+    print(time.asctime())
 
+    #SVM = svm.SVC(cache_size=1000, verbose=True, kernel="poly")
+    #SVM.fit(df, kmeans)
+    #joblib.dump(SVM, 'SVMPoly2Degree.pkl')
+    SVM = joblib.load('SVMPoly2Degree.pkl')
+    
+    #perc = Perceptron(n_jobs=-1,verbose=True)
+    #perc.fit(df, kmeans)
+    # joblib.dump(perc, 'perceptron.pkl')
+    
+    predicted = SVM.predict(df[:129513])
+    pd.DataFrame(predicted).to_csv('perceptronResults.csv', index=False, header=False)
+    pd.DataFrame(kmeans[:129513]).to_csv('perceptronTrue.csv', index=False, header=False)
+    print(time.asctime())
+    print(predicted)
+    
+    
+    recall = metr.recall_score(kmeans[:129513], predicted)
+    precision= metr.precision_score(kmeans[:129513], predicted)
+    print(recall)
+    print(precision)
+
+    print(SVM.intercept_)
+    print(SVM.coef_)
+    print(SVM.support_vectors_)
+    print(SVM.class_weight_)
+    
+    # print(perc.score(df, kmeans))
+    # print(perc.coef_)
+    # print(perc.intercept_)
+    # print(perc.loss_function_)
 ############### Sensor section ##################
 
 def get_wattage():
-    url = "http://192.168.255.250:4000" #change depending on who is being the simulator
+    url = "http://192.168.1.40:4000" #change depending on who is being the simulator
     myobj = {'pi': "broker"}
     x = requests.post(url, json = myobj)
     print("writing to file: ", x.text)
     list_of_dev = json.loads(x.text)
-    month=time.localtime().tm_mon + "-" + time.localtime().tm_year
-    file_name= month+csvfile+str(y["id"])+".csv"
+    month=str(time.localtime().tm_mon) + "-" + str(time.localtime().tm_year)
+    
         
     for y in list_of_dev :
+        file_name= month+csvfile+str(y["id"])+".csv"
         try:
             f = open(file_name, 'x')
             f.writelines(["id,date,wattage\n"])
@@ -209,8 +244,8 @@ if __name__ == '__main__':
 
 
     #ftp_thread.start()
-    #mqtt_thread.start()
-    reasoning_thread.start()
+    mqtt_thread.start()
+    #reasoning_thread.start()
 
     try:
         while 1:
@@ -218,7 +253,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print( "attempting to close threads.")
         #ftp_thread.terminate()
-        #mqtt_thread.terminate()
-        reasoning_thread.terminate()
+        mqtt_thread.terminate()
+        #reasoning_thread.terminate()
         print("threads successfully closed")
     
