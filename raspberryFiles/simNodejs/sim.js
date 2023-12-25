@@ -46,7 +46,13 @@ const datasend = http.createServer(function(request, response) {
     request.on('end', function() {
       console.log('Body: ' + body);
       console.log(lastWattage);
+<<<<<<< HEAD
       for(var i=0; i<lastWattage.length; i++) lastWattage[i]["date"]=Date.now();
+=======
+      for(var i=0; i<lastWattage.length; i++) {
+        lastWattage[i]["date"]= Date.now();
+      }
+>>>>>>> 594fd1a7838ae04d1449d27971b0e13f65959078
       response.writeHead(200, {'Content-Type': 'application/json'});
       response.end(JSON.stringify(lastWattage));
     })
