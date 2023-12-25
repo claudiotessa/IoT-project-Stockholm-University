@@ -24,7 +24,7 @@ public class MainActivity extends AppCompatActivity {
     ActivityMainBinding binding; // used for navbar
 
     private MqttAndroidClient client;
-    private static final String SERVER_URI = "tcp://test.mosquitto.org:1883";
+    private static final String SERVER_URI = "http://test.mosquitto.org:1883";
     private static final String TAG = "MainActivity";
 
     private static final String SENSORS_TOPIC = "iotProject/sensors";
@@ -36,10 +36,23 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
         replaceFragment(new HomeFragment());
 
+        // event listener for when the user clicks on a navbar button
+        // chooses the correct fragment to display
+        binding.bottomNavigationView.setOnItemSelectedListener(item -> {
+            int itemId = item.getItemId();
+            if(itemId == R.id.home){
+                replaceFragment(new HomeFragment());
+            } else if(itemId == R.id.analytics){
+                replaceFragment(new AnalyticsFragment());
+            }
+
+            return true;
+        });
+
         connect();
 
         // callback for MQTT
-        /*
+
         client.setCallback(new MqttCallbackExtended() {
             @Override
             public void connectComplete(boolean reconnect, String serverURI) {
@@ -64,21 +77,11 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void deliveryComplete(IMqttDeliveryToken token) {}
         });
-        */
 
 
-        // event listener for when the user clicks on a navbar button
-        // chooses the correct fragment to display
-        binding.bottomNavigationView.setOnItemSelectedListener(item -> {
-            int itemId = item.getItemId();
-            if(itemId == R.id.home){
-                replaceFragment(new HomeFragment());
-            } else if(itemId == R.id.analytics){
-                replaceFragment(new AnalyticsFragment());
-            }
 
-            return true;
-        });
+
+
     }
 
     // connect to MQTT server
@@ -88,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             IMqttToken token = client.connect();
-            /*
+
             token.setActionCallback(new IMqttActionListener() {
                 @Override
                 public void onSuccess(IMqttToken asyncActionToken) {
@@ -104,8 +107,9 @@ public class MainActivity extends AppCompatActivity {
                     System.out.println(TAG + " Oh no! Failed to connect to " +
                             SERVER_URI);
                 }
-            });*/
-        } catch (MqttException e) {
+            });
+        }
+        catch (MqttException e) {
             e.printStackTrace();
         }
     }
