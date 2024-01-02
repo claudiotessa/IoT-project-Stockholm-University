@@ -61,4 +61,5 @@ public class AnalyticsFragment extends Fragment {
         // Inflate the layout for this fragment
         return inflater.inflate(R.layout.fragment_analytics, container, false);
     }
+
 }
