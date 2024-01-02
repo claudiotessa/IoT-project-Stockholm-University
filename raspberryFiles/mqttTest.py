@@ -21,7 +21,7 @@ sub_topic = ["iotProject/devices", "iotProject/files"]
 def on_connect(client, userdata, flags, rc):
 	if rc==0:
 		print("Connection established. Code: "+str(rc))
-		client.subscribe(pub_topic)
+		client.subscribe(pub_topic, qos=1)
 	else:
 		print("Connection failed. Code: " + str(rc))
 		
@@ -61,7 +61,7 @@ client.on_message= on_message
 # Connect to MQTT 
 print("Attempting to connect to broker " + broker)
 client.connect(broker)
-client.loop_start()
+client.loop_forever()
 
 client.publish(sub_topic[0], '{"cmd":"switch", "id": 1, "onoff": "on"}')
 #client.publish(sub_topic[1], '{"cmd":"getloglog", "id": 1, "host": 192.168.1.124, "port": 5001, "separator": "<SEPARATOR>", "buffer": 4096 }')

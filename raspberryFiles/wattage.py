@@ -100,7 +100,7 @@ def find_high_low(id:int):
 
 
 def get_wattage():
-    url = "http://192.168.1.40:4000"  # change depending on who is being the simulator
+    url = "http://192.168.1.116:4000"  # change depending on who is being the simulator
     myobj = {"pi": "broker"}
     x = requests.post(url, json=myobj)
     print("writing to file: ", x.text)
@@ -159,7 +159,7 @@ def gather_actuators():
     # list_of_dev= ret.stdout.split("\n")
 
     # comment only in raspberry
-    ret = "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tON\n\n"
+    ret = "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tOFF\n\n"
     list_of_dev = ret.split("\n")
 
     n_devices = int(
@@ -183,7 +183,7 @@ def on_connect(client, userdata, flags, rc):
 
         for i in sub_topic:
             print("subscribing to topic: ", i)
-            client.subscribe(i)
+            client.subscribe(i, qos=1)
     else:
         print("Connection failed. Code: " + str(rc))
 
@@ -253,11 +253,15 @@ def run_mqtt():
     while True:
         time.sleep(2.0)  # Set delay  """
         data_to_send = get_wattage()  # dictionary
+        p=0
         for i in data_to_send:
             ind = actuator_dict.get_act(i["id"])["index"]
+            onoff= actuator_dict.get_act(i["id"])["onoff"]
             actuator_dict.set_act(ind, dictio=i)
+            data_to_send[p]['onoff']=onoff
+            p+=1
         # format sent [{'id': 1, 'date': milliseconds since epoch, 'wattage': 1.2, 'onoff': 'on'},...]
-
+        print(data_to_send)
         ret = client.publish(pub_topic, str(data_to_send))
         print(ret)
 
