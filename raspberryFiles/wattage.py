@@ -11,22 +11,22 @@ import multiprocessing
 
 from actuatorDict import ActuatorDict
 
-# import pandas as pd
+import pandas as pd
 
-# from sklearn.cluster import MiniBatchKMeans
-# from sklearn import svm
-# from sklearn.linear_model import Perceptron
-# import sklearn.metrics as metr
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.svm import SVC
+import numpy as np
+from sklearn.preprocessing import StandardScaler
 
-# import matplotlib.pyplot as plt
-# from sklearn.inspection import DecisionBoundaryDisplay
-
-# import joblib
+import joblib
+from sched import scheduler
 
 # Set MQTT broker and topic
 broker = "test.mosquitto.org"  # Broker
 
-pub_topic = "iotProject/sensors"  # send data of sensor
+pub_topic = ["iotProject/sensors",
+             "iotProject/controls"]  # send data of sensor, send data about calculated checks and limits
+
 sub_topic = [
     "iotProject/devices",
     "iotProject/files",
@@ -39,68 +39,80 @@ csvfile = "detections"
 actuator_dict = ActuatorDict()
 
 ############### Learning section ##################
-"""
-    ## cluster data based only off the wattage and assign to each data a cluster, then learn the data through a classifier
-def find_high_low(id:int):
-    month=time.localtime().tm_mon-1
-    year=time.localtime().tm_year
-    if(month==0):
-        month=12
-        year-=1
-    df = pd.read_csv(str(month)+'-'+str(year)+'detections'+str(id)+'.csv')
-    print(df.columns)
-    df.drop('id', axis=1, inplace=True)
-    to_fit=df.drop('date', axis=1)
-    kmeans = MiniBatchKMeans(n_clusters=2, n_init='auto', verbose=1).fit_predict(to_fit) #trying using something less computationally expensive
-    #df = df.assign(cluster=kmeans)
-    #print(df.iloc[34952])
 
-    #shifting each days in order to compare evry detections by day of gathering and not by date too
-    print("normalizing")
-    first_of_month=df.iloc[0]['date']
-    df['date'] = df['date']-(86400000*((df['date']-first_of_month)//86400000))
-    print(df.iloc[-1]['date'])
-    
-    print("training svm")
-    print(time.asctime())
+## cluster data based only off the wattage and assign to each data a cluster, then learn the data through a classifier
+def find_high_low():
+    mean_variance_list =[]
+    #do it for every actuator
+    for actuator in actuator_dict.get_all_id():
+        #get last month data
+        month=time.localtime().tm_mon-1
+        year=time.localtime().tm_year
+        if(month==0):
+            month=12
+            year-=1
+        df = pd.read_csv(str(month)+'-'+str(year)+'detections'+str(actuator)+'.csv')
 
-    #SVM = svm.SVC(cache_size=1000, verbose=True, kernel="poly")
-    #SVM.fit(df, kmeans)
-    #joblib.dump(SVM, 'SVMPoly2Degree.pkl')
-    SVM = joblib.load('SVMPoly2Degree.pkl')
-    
-    #perc = Perceptron(n_jobs=-1,verbose=True)
-    #perc.fit(df, kmeans)
-    # joblib.dump(perc, 'perceptron.pkl')
-    
-    predicted = SVM.predict(df[:129513])
-    pd.DataFrame(predicted).to_csv('perceptronResults.csv', index=False, header=False)
-    pd.DataFrame(kmeans[:129513]).to_csv('perceptronTrue.csv', index=False, header=False)
-    print(time.asctime())
-    print(predicted)
-    
-    
-    recall = metr.recall_score(kmeans[:129513], predicted)
-    precision= metr.precision_score(kmeans[:129513], predicted)
-    print(recall)
-    print(precision)
+        #distinguish between a turned on appliance and a stand by appliance
+        df = df.drop('id', axis=1)
+        to_fit=df.drop('date', axis=1)
+        kmeans = MiniBatchKMeans(n_clusters=2, n_init='auto', verbose=1).fit_predict(to_fit) #trying using something less computationally expensive
+        
+        #search the mean and variance of a turned on appliance to check if it's using more energy then usual
+        mean_variance={"id":actuator}
+        mean_variance.update(get_mean_variance(df,kmeans))
+        mean_variance_list.append(mean_variance)
 
-    print(SVM.intercept_)
-    print(SVM.coef_)
-    print(SVM.support_vectors_)
-    print(SVM.class_weight_)
-    
-    # print(perc.score(df, kmeans))
-    # print(perc.coef_)
-    # print(perc.intercept_)
-    # print(perc.loss_function_)
+        #weights calculation, nl1= turned on nl2=stand by, since data is unblanced we are going to give class 1 (on) nl2/nl1 weights (# times it's off/#time it's on) 
+        nl1= 0
+        nl2= 0
+        for i in kmeans:
+            if i==1: nl1+=1
+            if i==0: nl2+=1
 
-    """
+        print(time.asctime())
+        #scaling the data for easier fitting
+        sc= StandardScaler()
+        sc.fit(df)
+        df_transformed= sc.transform(df)
+        #training model 
+        model= SVC(class_weight={0:1, 1:nl2/nl1}, verbose=1, gamma=10, C=0.1)
+        joblib.dump(model, 'poly2.pkl')
+        
+        model.fit(df_transformed, kmeans)
+
+        u=model.predict(df_transformed)
+        joblib.dump(u, 'predictionsrbf.pkl')
+
+        print(time.asctime())
+        with open('output.txt', 'w') as filehandle:
+            json.dump(u.tolist(), filehandle)
+
+        df= df.assign(classes=kmeans)
+
+        on= df_transformed[df["classes"]==1]
+        regression= np.poly1d(np.polyfit(on[:,0], on[:,1], 8))
+    return mean_variance_list
+    
+def get_mean_variance(df, kmeans):
+    df= df.assign(classes=kmeans)
+    on=df[df["classes"]==1]
+    N=len(on)
+    s=0
+    for index, row in df.iterrows():
+        s+=row["wattage"]
+    mean=s/N
+
+    s=0
+    for index, row in df.iterrows():
+        s+=pow(row["wattage"]-mean, 2)
+    variance=s/N
+    return {"mean":mean, "variance":variance}
+    
 ############### Sensor section ##################
 
-
 def get_wattage():
-    url = "http://192.168.1.116:4000"  # change depending on who is being the simulator
+    url = "http://192.168.1.124:4000"  # change depending on who is being the simulator
     myobj = {"pi": "broker"}
     x = requests.post(url, json=myobj)
     print("writing to file: ", x.text)
@@ -112,7 +124,7 @@ def get_wattage():
         try:
             f = open(file_name, "x")
             f.writelines(["id,date,wattage\n"])
-        except:
+        except Exception:
             f = open(file_name, "a")
         writer = csv.writer(f, lineterminator="\n")
         writer.writerow([str(y["id"]), y["date"], str(y["wattage"])])
@@ -143,8 +155,8 @@ def send_file(host, port, separator="<SEPARATOR>", size=4096, format="utf-8"):
         data = file.read()
         conn.send("Filename received.".encode(format))
 
-        server.send(data.encode(format))
-        msg = server.recv(size).decode(format)
+        conn.send(data.encode(format))
+        msg = conn.recv(size).decode(format)
         print(f"[SERVER]: {msg}")
 
         file.close()
@@ -202,11 +214,13 @@ def on_disconnect(client, userdata, rc):
 def on_log(client, userdata, level, buf):  # Message is in buf
     print("MQTT Log: " + str(buf))
 
-
 # when getting message from a subscribed topic
 # if command is to switch on or off message has to be structured like this
 # {"cmd":"switch", "id": id number, "onoff": on\off status}
 
+# if command is to program when to turn on or off message has to be structured like this
+# {"cmd":"program", "id": id number, "on":ms from epoch, "off":ms from epoch} 
+# if either on or off is missing then assume they want to keep it off or on
 
 def on_message(client, userdata, message):
     try:
@@ -217,11 +231,14 @@ def on_message(client, userdata, message):
         print("\nmessage retain flag=", message.retain)
         dict_command = json.loads(data)
         if dict_command["cmd"] == "switch":
-            # subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
-            actuator_dict.set_act(
-                id=dict_command["id"], dictio={"onoff": dict_command["onoff"]}
-            )
+            turn_on_off(dict_command)
             print("switch success")
+        if dict_command["cmd"] == "program":
+            s= scheduler(time.monotonic, time.sleep)
+            if dict_command["on"]!= None:
+                s.enterabs(dict_command["on"], 10, turn_on_off, argument=(dict_command, ))
+            if dict_command["off"]!= None:
+                s.enterabs(dict_command["off"], 10, turn_on_off, argument=(dict_command, ))
 
     except ValueError as error:
         print(
@@ -231,8 +248,11 @@ def on_message(client, userdata, message):
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         )
         return error
-
-
+def turn_on_off(dict_command):
+    # subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
+    actuator_dict.set_act(
+       id=dict_command["id"], dictio={"onoff": dict_command["onoff"]}
+    )
 def run_mqtt():
     # Connect functions for MQTT
     client = mqtt.Client()
@@ -248,7 +268,12 @@ def run_mqtt():
         broker
     )  # Broker address, port and keepalive (maximum period in seconds allowed between communications with the broker)
     client.loop_start()
-
+    time.sleep(2.0)
+    mean_variance_list = find_high_low()
+    print(mean_variance_list)
+    ret= client.publish(pub_topic[1], str(mean_variance_list))
+    print(ret)
+    
     # Loop that publishes message
     while True:
         time.sleep(2.0)  # Set delay  """
@@ -262,30 +287,26 @@ def run_mqtt():
             p+=1
         # format sent [{'id': 1, 'date': milliseconds since epoch, 'wattage': 1.2, 'onoff': 'on'},...]
         print(data_to_send)
-        ret = client.publish(pub_topic, str(data_to_send))
+        ret = client.publish(pub_topic[0], str(data_to_send))
         print(ret)
 
 
 ############### starting up section ##################
 if __name__ == "__main__":
-    # ftp_thread = multiprocessing.Process(
-    #     target=send_file, args=("192.168.255.250", 2000), daemon=True
-    # )
-    mqtt_thread = multiprocessing.Process(target=run_mqtt, daemon=True)
-    # reasoning_thread = multiprocessing.Process(
-    #     target=find_high_low, args=(1,), daemon=True
-    # )
 
-    # ftp_thread.start()
-    mqtt_thread.start()
-    # reasoning_thread.start()
+    ftp_thread = multiprocessing.Process(
+        target=send_file, args=("0.0.0.0", 2000), daemon=True
+    )
+    mqtt_thread = multiprocessing.Process(target=run_mqtt, daemon=True)
+
+    ftp_thread.start()
+    #àmqtt_thread.start()
 
     try:
         while 1:
             time.sleep(0.1)
     except KeyboardInterrupt:
         print("attempting to close threads.")
-        # ftp_thread.terminate()
-        mqtt_thread.terminate()
-        # reasoning_thread.terminate()
+        ftp_thread.terminate()
+        #mqtt_thread.terminate()
         print("threads successfully closed")
