@@ -7,7 +7,8 @@ public class RealTimeDeviceData {
 
     public RealTimeDeviceData(int id, int timestamp, double wattage){
         this.id = id;
-        this. timestamp = timestamp;
+        this.timestamp = timestamp;
         this.wattage = wattage;
     }
 }
+

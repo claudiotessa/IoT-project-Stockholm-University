@@ -42,6 +42,8 @@ public class MainActivity extends AppCompatActivity {
 
 
     String prova = "[{id:1, timestamp:1704130156, wattage: 1.2}, {id:2, timestamp:1704130157, wattage: 1.4}]";
+    String recc = "[{recommendation: 'At this pace, you will go overbudget in 12 days (before the end of the moth'},{recommendation: 'Device id:1 had an unusual spike around 5pm today'}]";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -66,19 +68,25 @@ public class MainActivity extends AppCompatActivity {
                     subscribe(SENSORS_TOPIC);
                 }
             }
+
             @Override
             public void connectionLost(Throwable cause) {
                 System.out.println("The Connection was lost.");
             }
+
             @Override
             public void messageArrived(String topic, MqttMessage message) throws Exception {
                 String newMessage = new String(message.getPayload());
                 System.out.println("Incoming message: " + newMessage);
 
-                readRealTimeDevicesData(newMessage);
+                if(topic == SENSORS_TOPIC){
+                    readRealTimeDevicesData(newMessage);
+                }
             }
+
             @Override
-            public void deliveryComplete(IMqttDeliveryToken token) {}
+            public void deliveryComplete(IMqttDeliveryToken token) {
+            }
         });
 
         // Attempt to invoke virtual method 'void org.eclipse.paho.android.service.MqttService.subscribe(java.lang.String, java.lang.String, int, java.lang.String, java.lang.String)' on a null object reference
@@ -88,12 +96,14 @@ public class MainActivity extends AppCompatActivity {
         // chooses the correct fragment to display
         binding.bottomNavigationView.setOnItemSelectedListener(item -> {
             int itemId = item.getItemId();
-            if(itemId == R.id.home){
+            if (itemId == R.id.home) {
                 replaceFragment(new HomeFragment(), "home");
                 // test rendering real time data;
                 readRealTimeDevicesData(prova);
-            } else if(itemId == R.id.analytics){
+            } else if (itemId == R.id.analytics) {
                 replaceFragment(new AnalyticsFragment(), "analytics");
+                //test rendering reccomendations
+                readRecommendations(recc);
             }
 
             return true;
@@ -101,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // connect to MQTT server
-    private void connect(){
+    private void connect() {
         String clientId = MqttClient.generateClientId();
         client = new MqttAndroidClient(this.getApplicationContext(), SERVER_URI, clientId);
 
@@ -115,16 +125,15 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "onSuccess");
                     System.out.println(TAG + " Success. Connected to " + SERVER_URI);
                 }
+
                 @Override
-                public void onFailure(IMqttToken asyncActionToken, Throwable exception)
-                {
+                public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
                     // Something went wrong e.g. connection timeout or firewall problems
                     Log.d(TAG, "onFailure");
                     System.out.println(TAG + " Oh no! Failed to connect to " + SERVER_URI);
                 }
             });
-        }
-        catch (MqttException e) {
+        } catch (MqttException e) {
             e.printStackTrace();
         }
     }
@@ -140,6 +149,7 @@ public class MainActivity extends AppCompatActivity {
                 public void onSuccess(IMqttToken asyncActionToken) {
                     System.out.println("Subscription successful to topic: " + topic);
                 }
+
                 @Override
                 public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
                     System.out.println("Failed to subscribe to topic: " + topic);
@@ -156,13 +166,13 @@ public class MainActivity extends AppCompatActivity {
     public void publish(String topic, String message) throws MqttException {
         try {
             client.publish(topic, new MqttMessage(message.getBytes()));
-        }catch (MqttException e){
+        } catch (MqttException e) {
             e.printStackTrace();
         }
     }
 
     // when called, replaces the passed fragment (active page)
-    private void replaceFragment(Fragment fragment, String tag){
+    private void replaceFragment(Fragment fragment, String tag) {
         FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
         fragmentTransaction.replace(R.id.frame_layout, fragment, tag);
         fragmentTransaction.commit();
@@ -172,23 +182,21 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private void readRealTimeDevicesData(String data){
+    private void readRealTimeDevicesData(String data) {
         try {
             // read every device into an array;
-            JSONArray jsonArray;
             ArrayList<RealTimeDeviceData> realTimeDevicesData = new ArrayList<>();
-            jsonArray = new JSONArray(data);
-
-            for(int i = 0; i < jsonArray.length(); i++){
+            JSONArray jsonArray = new JSONArray(data);
+            for (int i = 0; i < jsonArray.length(); i++) {
                 //read json into java object
                 realTimeDevicesData.add(new RealTimeDeviceData(
-                    Integer.parseInt(jsonArray.getJSONObject(i).getString("id")),
-                    Integer.parseInt(jsonArray.getJSONObject(i).getString("timestamp")),
-                    Double.parseDouble(jsonArray.getJSONObject(i).getString("wattage"))
+                        Integer.parseInt(jsonArray.getJSONObject(i).getString("id")),
+                        Integer.parseInt(jsonArray.getJSONObject(i).getString("timestamp")),
+                        Double.parseDouble(jsonArray.getJSONObject(i).getString("wattage"))
                 ));
             }
             HomeFragment homeFragment = (HomeFragment) fragmentManager.findFragmentByTag("home");
-            if(homeFragment != null){
+            if (homeFragment != null) {
                 homeFragment.renderDevicesCards(realTimeDevicesData, this);
             } else {
                 System.out.println("Cannot display real time data. Home Fragment not loaded!");
@@ -198,5 +206,26 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    public void readRecommendations(String data) {
+        try {
+            ArrayList<String> recommendations = new ArrayList<>();
+            JSONArray jsonArray = new JSONArray(data);
+            for (int i = 0; i < jsonArray.length(); i++) {
+                recommendations.add(
+                        jsonArray.getJSONObject(i).getString("recommendation")
+                );
+            }
+
+            AnalyticsFragment analyticsFragment = (AnalyticsFragment) fragmentManager.findFragmentByTag("analytics");
+            if (analyticsFragment != null) {
+                analyticsFragment.renderRecommendations(recommendations);
+            } else {
+                System.out.println("Cannot display recommendations yet. Analytics Fragment not loaded!");
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+    }
 
 }
