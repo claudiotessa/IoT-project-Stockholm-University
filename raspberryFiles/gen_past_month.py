@@ -12,7 +12,7 @@ minutes=[900000,1500000,2400000,3000000]
 #itero tra i giorni
 f = open("11-2023detections1.csv", 'a')
 # 1st nov 2023 00:00, 1st dec 2023 00:00 (not included), ms in 24hr
-for day in range(1698793200000,1701385200000,86400000):
+for day in range(1698793200000,1699225200000,86400000):
     t=r.choice(times)
     h=r.choice(hours)
     m=r.choice(minutes)

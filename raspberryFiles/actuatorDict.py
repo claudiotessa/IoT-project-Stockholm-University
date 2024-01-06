@@ -32,4 +32,7 @@ class ActuatorDict :
                 self.__actuators[ind]["wattage"]=dictio["wattage"] if "wattage" in dictio else 1
                 self.__actuators[ind]["date"]=dictio["date"] if "date" in dictio else 1
                 self.__actuators[ind]["name"]=dictio["name"] if "name" in dictio else 1
+
+    def get_all_id(self):
+        return [d['id'] for d in self.__actuators]
 # dictionary of actuator with necessary functions to get the data and corelated files
