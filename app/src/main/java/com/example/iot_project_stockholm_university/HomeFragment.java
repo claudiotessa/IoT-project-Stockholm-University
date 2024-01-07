@@ -84,19 +84,14 @@ public class HomeFragment extends Fragment {
     public void renderDevicesCards(ArrayList<RealTimeDeviceData> realTimeDevicesData, MainActivity mainActivity){
         double totalConsumption = 0;
         for (RealTimeDeviceData d : realTimeDevicesData) {
-
             View view = LayoutInflater.from(getContext()).inflate(R.layout.device_card, null);
             linearLayout.addView(view);
-
             TextView deviceName = view.findViewById(R.id.deviceName);
             TextView textConsumption = view.findViewById(R.id.textConsumption);
             Switch switchDevice = view.findViewById(R.id.switchDevice);
-
             deviceName.setText(Integer.toString(d.id));
             textConsumption.setText(d.wattage + " W/h");
-
             switchDevice.setOnCheckedChangeListener((listener, isChecked) -> {
-                // TODO: set on and off the device
                 if(isChecked){
                     System.out.println(d.id + " was activated");
                     try{
@@ -115,10 +110,10 @@ public class HomeFragment extends Fragment {
             });
             totalConsumption += d.wattage;
         }
-
         TextView totalConsumptionText = getView().findViewById(R.id.totalConsumption);
-
         // rounds to 2 decimal places
         totalConsumptionText.setText("Total: " + String.format("%.2f", totalConsumption) + " W/h");
     }
+
+
 }

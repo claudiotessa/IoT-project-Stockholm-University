@@ -1,5 +1,6 @@
 package com.example.iot_project_stockholm_university;
 
+import android.os.AsyncTask;
 import android.os.Bundle;
 
 import androidx.fragment.app.Fragment;
@@ -7,6 +8,19 @@ import androidx.fragment.app.Fragment;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * A simple {@link Fragment} subclass.
@@ -23,6 +37,8 @@ public class AnalyticsFragment extends Fragment {
     // TODO: Rename and change types of parameters
     private String mParam1;
     private String mParam2;
+
+    LinearLayout linearLayout;
 
     public AnalyticsFragment() {
         // Required empty public constructor
@@ -59,7 +75,62 @@ public class AnalyticsFragment extends Fragment {
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_analytics, container, false);
+        View rootView = inflater.inflate(R.layout.fragment_analytics, container, false);
+        linearLayout = (LinearLayout) rootView.findViewById(R.id.linearLayoutRecommendations);
+
+        new RequestAnalytics().execute("12-2023detections1.csv", "192.168.1.124", "2000");
+        return rootView;
     }
 
+    public void renderRecommendations(ArrayList<String> recommendations) {
+        for (String recommendation : recommendations) {
+            View view = LayoutInflater.from(getContext()).inflate(R.layout.recommendation_card, null);
+            linearLayout.addView(view);
+
+            TextView recommendationText = view.findViewById(R.id.recommendationText);
+            recommendationText.setText(recommendation);
+        }
+    }
+}
+
+class RequestAnalytics extends AsyncTask<String, Void, String> {
+    String host;
+    Integer port;
+    @Override
+    protected String doInBackground(String... args) {
+        try{
+            host = args[1];
+            port = Integer.parseInt(args[2]);
+            String msg = args[0];
+
+            Socket socket = new Socket(host, port);
+
+            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+            DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+
+            // send msg
+            dataOutputStream.write(msg.getBytes("UTF-8"));
+            dataOutputStream.flush();
+
+            // read msg
+            String response = String.valueOf(dataInputStream.read());
+
+            dataOutputStream.write("file received".getBytes("UTF-8"));
+            dataOutputStream.flush();
+
+            socket.close();
+
+            return response;
+
+        }catch (Exception e){
+            e.printStackTrace();
+            return "error tcp";
+        }
+    }
+
+    @Override
+    protected void onPostExecute(String response){
+        //after execution render consumption chart
+        System.out.println("Response: " + response);
+    }
 }
