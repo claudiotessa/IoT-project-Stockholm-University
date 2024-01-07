@@ -63,9 +63,9 @@ public class MainActivity extends AppCompatActivity {
                     System.out.println("Reconnected to : " + serverURI);
                     // Re-subscribe as we lost it due to new session
                     subscribe(SENSORS_TOPIC);
+
                 } else {
                     System.out.println("Connected to: " + serverURI);
-                    subscribe(SENSORS_TOPIC);
                 }
             }
 
@@ -124,6 +124,7 @@ public class MainActivity extends AppCompatActivity {
                     // We are connected
                     Log.d(TAG, "onSuccess");
                     System.out.println(TAG + " Success. Connected to " + SERVER_URI);
+                    subscribe(SENSORS_TOPIC);
                 }
 
                 @Override
