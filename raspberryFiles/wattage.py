@@ -53,64 +53,42 @@ def find_high_low():
             year-=1
         df = pd.read_csv(str(month)+'-'+str(year)+'detections'+str(actuator)+'.csv')
 
+        first_of_month=df.iloc[0]['date']
+        df['date'] = df['date']-(86400000*((df['date']-first_of_month)//86400000))-first_of_month
         #distinguish between a turned on appliance and a stand by appliance
         df = df.drop('id', axis=1)
         to_fit=df.drop('date', axis=1)
         kmeans = MiniBatchKMeans(n_clusters=2, n_init='auto', verbose=1).fit_predict(to_fit) #trying using something less computationally expensive
-        
-        #search the mean and variance of a turned on appliance to check if it's using more energy then usual
-        mean_variance={"id":actuator}
-        mean_variance.update(get_mean_variance(df,kmeans))
-        mean_variance_list.append(mean_variance)
-
-        #weights calculation, nl1= turned on nl2=stand by, since data is unblanced we are going to give class 1 (on) nl2/nl1 weights (# times it's off/#time it's on) 
-        nl1= 0
-        nl2= 0
-        for i in kmeans:
-            if i==1: nl1+=1
-            if i==0: nl2+=1
-
-        print(time.asctime())
-        #scaling the data for easier fitting
-        sc= StandardScaler()
-        sc.fit(df)
-        df_transformed= sc.transform(df)
-        #training model 
-        model= SVC(class_weight={0:1, 1:nl2/nl1}, verbose=1, gamma=10, C=0.1)
-        joblib.dump(model, 'poly2.pkl')
-        
-        model.fit(df_transformed, kmeans)
-
-        u=model.predict(df_transformed)
-        joblib.dump(u, 'predictionsrbf.pkl')
-
-        print(time.asctime())
-        with open('output.txt', 'w') as filehandle:
-            json.dump(u.tolist(), filehandle)
+        #{"id":id, }
 
         df= df.assign(classes=kmeans)
+        on= df[df["classes"]==1].to_numpy()
 
-        on= df_transformed[df["classes"]==1]
-        regression= np.poly1d(np.polyfit(on[:,0], on[:,1], 8))
+        #search the mean and calculate an upperbound of wattage that is used as a general limit to find if the aplliance is consuming more then usual
+        #meaning that it is probably broken and need repairing
+                
+        suggestions={"id":actuator}
+
+        perc=int(len(on)*0.1) #watch just the top 10% of the data
+        sorted_wattage= on[on[:,1].argsort()]
+        maximum=sorted_wattage[1-perc:,1]
+        print( maximum)
+        suggestions.update({"mean":np.mean(on[:,1]), "max": np.mean(maximum)+np.sqrt(np.var(on[:,1]))})
+        #watching the first and last 10% of the data we can find a decent point of start that should not too influenced by outliers
+        sorted_time= on[on[:,0].argsort()]
+        first= sorted_time[:perc,0]
+        last= sorted_time[1-perc:,0]
+        #add 10 minutes to start and end time to give a bit of leaway
+        start=np.mean(first)-10*1000*60
+        end=np.mean(last)+10*1000*60
+
+        suggestions.update({"start":start, "end":end})
+        mean_variance_list.append(suggestions)
     return mean_variance_list
-    
-def get_mean_variance(df, kmeans):
-    df= df.assign(classes=kmeans)
-    on=df[df["classes"]==1]
-    N=len(on)
-    s=0
-    for index, row in df.iterrows():
-        s+=row["wattage"]
-    mean=s/N
-
-    s=0
-    for index, row in df.iterrows():
-        s+=pow(row["wattage"]-mean, 2)
-    variance=s/N
-    return {"mean":mean, "variance":variance}
     
 ############### Sensor section ##################
 
+#gathers data from the simulator, to change the wattage 
 def get_wattage():
     url = "http://192.168.1.124:4000"  # change depending on who is being the simulator
     myobj = {"pi": "broker"}
@@ -130,7 +108,6 @@ def get_wattage():
         writer.writerow([str(y["id"]), y["date"], str(y["wattage"])])
         f.close()
     return list_of_dev
-
 
 ############### FTP section ##################
 
@@ -166,24 +143,24 @@ def send_file(host, port, separator="<SEPARATOR>", size=4096, format="utf-8"):
 
 ############### MQTT section ##################
 def gather_actuators():
+    #checks how many actuators are connected to the raspberrypy
     # uncomment only in raspberry
     # ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
     # list_of_dev= ret.stdout.split("\n")
 
     # comment only in raspberry
-    ret = "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tOFF\n\n"
+    ret = "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tON\n\n"
     list_of_dev = ret.split("\n")
 
+    # this line extracts x from the string "Number of devices: x",
     n_devices = int(
         list_of_dev[0].split()[-1]
-    )  # this line extracts x from the string "Number of devices: x",
+    )  
 
     for i in range(1, n_devices + 1):
         x = list_of_dev[i].split("\t")
         actuator_dict.add(id=int(x[0]), name=x[1].lower(), onoff=x[-1].lower())
     print(actuator_dict.get_act(1))
-    ######### topic subscription
-
 
 # when connecting to mqtt do this;
 def on_connect(client, userdata, flags, rc):
@@ -193,6 +170,7 @@ def on_connect(client, userdata, flags, rc):
         ######## gathering actuators
         gather_actuators()
 
+        ######### topic subscription
         for i in sub_topic:
             print("subscribing to topic: ", i)
             client.subscribe(i, qos=1)
@@ -249,6 +227,8 @@ def on_message(client, userdata, message):
         )
         return error
 def turn_on_off(dict_command):
+    #sends a shell command to the raspberry to activate the actuator
+    #uncomment only in raspberrypi
     # subprocess.run(["tdtool", "--"+dict_command["onoff"], str(dict_command["id"])]) #uncomment only in raspberry
     actuator_dict.set_act(
        id=dict_command["id"], dictio={"onoff": dict_command["onoff"]}
@@ -269,17 +249,21 @@ def run_mqtt():
     )  # Broker address, port and keepalive (maximum period in seconds allowed between communications with the broker)
     client.loop_start()
     time.sleep(2.0)
-    mean_variance_list = find_high_low()
-    print(mean_variance_list)
-    ret= client.publish(pub_topic[1], str(mean_variance_list))
+
+    #find the suggestions based on last month data
+    suggestions = find_high_low()
+    print(suggestions)
+    ret= client.publish(pub_topic[1], str(suggestions))
     print(ret)
     
     # Loop that publishes message
     while True:
-        time.sleep(2.0)  # Set delay  """
+        time.sleep(2.0)  # Set delay
         data_to_send = get_wattage()  # dictionary
         p=0
         for i in data_to_send:
+            #actuator dict is an object with a list of dictionaries containing all the data of a actuator
+            #here i update all the data of every actuator after i gather it through get_wattage()
             ind = actuator_dict.get_act(i["id"])["index"]
             onoff= actuator_dict.get_act(i["id"])["onoff"]
             actuator_dict.set_act(ind, dictio=i)
@@ -292,6 +276,7 @@ def run_mqtt():
 
 
 ############### starting up section ##################
+        
 if __name__ == "__main__":
 
     ftp_thread = multiprocessing.Process(
@@ -300,7 +285,7 @@ if __name__ == "__main__":
     mqtt_thread = multiprocessing.Process(target=run_mqtt, daemon=True)
 
     ftp_thread.start()
-    #àmqtt_thread.start()
+    mqtt_thread.start()
 
     try:
         while 1:
@@ -308,5 +293,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("attempting to close threads.")
         ftp_thread.terminate()
-        #mqtt_thread.terminate()
+        mqtt_thread.terminate()
         print("threads successfully closed")
