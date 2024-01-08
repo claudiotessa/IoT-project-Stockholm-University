@@ -17,7 +17,6 @@ import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.svm import SVC
 import numpy as np
-from sklearn.preprocessing import StandardScaler
 
 import joblib
 from sched import scheduler
@@ -70,8 +69,7 @@ def find_high_low():
         to_fit = df.drop("date", axis=1)
         kmeans = MiniBatchKMeans(n_clusters=2, n_init="auto", verbose=1).fit_predict(
             to_fit
-        )  # trying using something less computationally expensive
-        # {"id":id, }
+        )
 
         df = df.assign(classes=kmeans)
         on = df[df["classes"] == 1].to_numpy()
@@ -96,8 +94,8 @@ def find_high_low():
         first = sorted_time[:perc, 0]
         last = sorted_time[1 - perc :, 0]
         # add 10 minutes to start and end time to give a bit of leaway
-        start = np.mean(first) - 10 * 1000 * 60
-        end = np.mean(last) + 10 * 1000 * 60
+        start = np.mean(first) - 30 * 1000 * 60
+        end = np.mean(last) + 30 * 1000 * 60
 
         suggestions.update({"start": start, "end": end})
         mean_variance_list.append(suggestions)
@@ -130,7 +128,6 @@ def get_wattage():
 
 
 ############### FTP section ##################
-
 
 def send_file(host, port, separator="<SEPARATOR>", size=4096, format="utf-8"):
     ADDR = (host, port)
@@ -181,26 +178,24 @@ def send_file(host, port, separator="<SEPARATOR>", size=4096, format="utf-8"):
                         / data_to_send[day][hour]["count"]
                     )
                 data_to_send[day] = day_consumption
-
+            print(data_to_send)
             conn.send(json.dumps(data_to_send).encode(format))
+            print(data_to_send)
             msg = conn.recv(size).decode(format)
             print(f"[SERVER]: {msg}")
+            file.close()
         except:
             conn.send("Filename not found.".encode(format))
-        file.close()
         conn.close()
         print(f"[DISCONNECTED] {addr} disconnected.")
-
 
 ############### MQTT section ##################
 def gather_actuators():
     # checks how many actuators are connected to the raspberrypy
-    # uncomment only in raspberry
-    # ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
-    # list_of_dev= ret.stdout.split("\n")
-
-    # comment only in raspberry
-    ret = "Number of devices: 2\n1\tLighting\tON\n2\tLighting2\tON\n\n"
+    #uncomment only in raspberry
+    ret = subprocess.run(["tdtool","-l"], capture_output = True,text = True)
+    list_of_dev= ret.stdout.split("\n")
+    
     list_of_dev = ret.split("\n")
 
     # this line extracts x from the string "Number of devices: x",
@@ -344,7 +339,7 @@ if __name__ == "__main__":
     mqtt_thread = multiprocessing.Process(target=run_mqtt, daemon=True)
 
     ftp_thread.start()
-    mqtt_thread.start()
+    #mqtt_thread.start()
 
     try:
         while 1:
