@@ -8,19 +8,28 @@ import androidx.fragment.app.Fragment;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewManager;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
+
+import org.json.JSONObject;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * A simple {@link Fragment} subclass.
@@ -39,6 +48,12 @@ public class AnalyticsFragment extends Fragment {
     private String mParam2;
 
     LinearLayout linearLayout;
+    public static LineChart chart;
+    public static int budget = 0;
+    Button budgetButton;
+    TextView budgetText;
+    public static HashMap<Integer, Double> totalDailyConsumption;
+
 
     public AnalyticsFragment() {
         // Required empty public constructor
@@ -77,8 +92,21 @@ public class AnalyticsFragment extends Fragment {
         // Inflate the layout for this fragment
         View rootView = inflater.inflate(R.layout.fragment_analytics, container, false);
         linearLayout = (LinearLayout) rootView.findViewById(R.id.linearLayoutRecommendations);
+        chart = (LineChart) rootView.findViewById(R.id.chart);
+        chart.setDrawGridBackground(false);
+        chart.setDrawBorders(false);
 
-        new RequestAnalytics().execute("12-2023detections1.csv", "192.168.1.124", "2000");
+
+        budgetButton = (Button) rootView.findViewById(R.id.budgetButton);
+        budgetText = (TextView) rootView.findViewById(R.id.budgetText);
+
+        budgetButton.setOnClickListener((View view) -> {
+            BudgetDialog budgetDialog = new BudgetDialog();
+            budgetDialog.show(getActivity().getSupportFragmentManager(), "budget dialog");
+        });
+        applyBudget(AnalyticsFragment.budget + "");
+        System.out.println("Executing request...");
+        new RequestAnalytics().execute("1", "2");
         return rootView;
     }
 
@@ -88,49 +116,142 @@ public class AnalyticsFragment extends Fragment {
             linearLayout.addView(view);
 
             TextView recommendationText = view.findViewById(R.id.recommendationText);
+            Button deleteButton = view.findViewById(R.id.deleteButton);
+            deleteButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    ((ViewManager)view.getParent()).removeView(view);
+                }
+            });
             recommendationText.setText(recommendation);
         }
     }
+
+    public void applyBudget(String budget) {
+        this.budget = Integer.parseInt(budget);
+        budgetText.setText("Budget: " + budget + " w/mo");
+        checkBudget();
+    }
+
+    public void checkBudget() {
+        if (budget == 0) {
+            System.out.println("Budget not set");
+            return;
+        }
+        int detectedDays = totalDailyConsumption.size();
+        double dailyAverage = 0;
+        for (Integer key : totalDailyConsumption.keySet()) {
+            dailyAverage += totalDailyConsumption.get(key);
+            System.out.println(key + ": " + totalDailyConsumption.get(key));
+        }
+        dailyAverage = (double) dailyAverage / detectedDays;
+
+
+        System.out.println("dailyavg:" + dailyAverage);
+        String str = "";
+        if (dailyAverage * 30 > budget) {
+            int missingDays = (int) ((budget - dailyAverage * detectedDays) / dailyAverage);
+            if (missingDays > 0) {
+                str = "At this pace, you will go overbudget in "
+                        + missingDays
+                        + " days (before the end of the month).";
+            } else {
+                str = "Oh no! You are already overbudget :(";
+            }
+        } else {
+            str = "At this pace, you will stay within your budget for this month! :)";
+        }
+        renderRecommendations(new ArrayList<>(Arrays.asList(str)));
+
+    }
 }
 
-class RequestAnalytics extends AsyncTask<String, Void, String> {
-    String host;
-    Integer port;
+class RequestAnalytics extends AsyncTask<String, Void, ArrayList<String>> {
+    private static final String HOST = "192.168.1.124";
+    private static final int PORT = 2000;
+
     @Override
-    protected String doInBackground(String... args) {
-        try{
-            host = args[1];
-            port = Integer.parseInt(args[2]);
-            String msg = args[0];
+    protected ArrayList<String> doInBackground(String... args) {
+        try {
+            ArrayList<String> responses = new ArrayList<>();
 
-            Socket socket = new Socket(host, port);
+            System.out.println("Starting request of files");
+            for (String id : args) {
+                Socket socket = new Socket(HOST, PORT);
 
-            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
-            DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+                DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+                DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+                String fileName = LocalDate.now().getMonthValue()
+                        + "-" + LocalDate.now().getYear() + "detections" + id + ".csv";
+                // send msg
+                System.out.println("Sending: " + fileName);
+                dataOutputStream.write(fileName.getBytes("UTF-8"));
+                dataOutputStream.flush();
 
-            // send msg
-            dataOutputStream.write(msg.getBytes("UTF-8"));
-            dataOutputStream.flush();
+                // read msg
+                byte[] b = new byte[4096];
+                int count = dataInputStream.read(b);
+                String resp = new String(b, StandardCharsets.UTF_8);
+                ;
+                System.out.println("Received: " + resp);
+                responses.add(id);
+                responses.add(resp);
 
-            // read msg
-            String response = String.valueOf(dataInputStream.read());
+                dataOutputStream.write("file received".getBytes("UTF-8"));
+                dataOutputStream.flush();
+                dataInputStream.close();
 
-            dataOutputStream.write("file received".getBytes("UTF-8"));
-            dataOutputStream.flush();
+                dataInputStream.close();
+                socket.close();
+            }
 
-            socket.close();
 
-            return response;
+            return responses;
 
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
-            return "error tcp";
+            return new ArrayList<String>(Arrays.asList("-1"));
         }
     }
 
     @Override
-    protected void onPostExecute(String response){
+    protected void onPostExecute(ArrayList<String> result) {
         //after execution render consumption chart
-        System.out.println("Response: " + response);
+        if (result.get(0).equals("-1")) {
+            System.out.println("result -1");
+            return;
+        }
+        ;
+
+        try {
+            LineData lineData = new LineData();
+            HashMap<Integer, Double> totalDailyConsumption = new HashMap<>();
+            for (int i = 0; i < result.size() - 1; i += 2) {
+                JSONObject jsonObject = new JSONObject(result.get(i + 1));
+                Iterator<String> keys = jsonObject.keys();
+                List<Entry> entries = new ArrayList<Entry>();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    // turn data into Entry objects to be read from the chart
+                    entries.add(new Entry(Integer.parseInt(key), (float) jsonObject.getDouble(key)));
+                    if (totalDailyConsumption.containsKey(Integer.parseInt(key))) {
+                        totalDailyConsumption.put(
+                                Integer.parseInt(key),
+                                totalDailyConsumption.get(Integer.parseInt(key)) + jsonObject.getDouble(key)
+                        );
+                    } else {
+                        totalDailyConsumption.put(Integer.parseInt(key), jsonObject.getDouble(key));
+                    }
+                }
+                LineDataSet dataSet = new LineDataSet(entries, result.get(i)); // add entries to dataset
+                lineData.addDataSet(dataSet);
+            }
+            AnalyticsFragment.chart.setData(lineData);
+            AnalyticsFragment.chart.invalidate();
+            AnalyticsFragment.totalDailyConsumption = totalDailyConsumption;
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("result format error");
+        }
     }
 }

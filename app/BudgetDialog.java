@@ -1,0 +1,2 @@
+public class BudgetDialog  extends {
+}

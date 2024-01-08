@@ -91,6 +91,7 @@ public class HomeFragment extends Fragment {
             Switch switchDevice = view.findViewById(R.id.switchDevice);
             deviceName.setText(Integer.toString(d.id));
             textConsumption.setText(d.wattage + " W/h");
+            switchDevice.setChecked(d.isOn);
             switchDevice.setOnCheckedChangeListener((listener, isChecked) -> {
                 if(isChecked){
                     System.out.println(d.id + " was activated");

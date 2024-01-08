@@ -7,11 +7,6 @@ import androidx.fragment.app.FragmentTransaction;
 
 import android.os.Bundle;
 import android.util.Log;
-import android.view.View;
-import android.widget.CompoundButton;
-import android.widget.LinearLayout;
-import android.widget.Switch;
-import android.widget.TextView;
 
 import com.example.iot_project_stockholm_university.databinding.ActivityMainBinding;
 
@@ -26,7 +21,6 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.json.*;
 
 import java.util.ArrayList;
-import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -38,11 +32,12 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String SENSORS_TOPIC = "iotProject/sensors";
     public static final String DEVICES_TOPIC = "iotProject/devices";
+    private static final String REC_TOPIC = "iotProject/controls";
     private FragmentManager fragmentManager;
 
 
-    String prova = "[{id:1, timestamp:1704130156, wattage: 1.2}, {id:2, timestamp:1704130157, wattage: 1.4}]";
-    String recc = "[{recommendation: 'At this pace, you will go overbudget in 12 days (before the end of the moth'},{recommendation: 'Device id:1 had an unusual spike around 5pm today'}]";
+    String prova = "[{id:1, timestamp:1704130156, wattage: 1.2, onoff: on}, {id:2, timestamp:1704130157, wattage: 1.4, onoff:on}]";
+    String recc = "[{recommendation: 'Device id:1 had an unusual spike around 5pm today'}]";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
                     System.out.println("Reconnected to : " + serverURI);
                     // Re-subscribe as we lost it due to new session
                     subscribe(SENSORS_TOPIC);
+                    subscribe(REC_TOPIC);
 
                 } else {
                     System.out.println("Connected to: " + serverURI);
@@ -79,8 +75,13 @@ public class MainActivity extends AppCompatActivity {
                 String newMessage = new String(message.getPayload());
                 System.out.println("Incoming message: " + newMessage);
 
-                if(topic == SENSORS_TOPIC){
-                    readRealTimeDevicesData(newMessage);
+                switch (topic) {
+                    case SENSORS_TOPIC:
+                        readRealTimeDevicesData(newMessage);
+                        break;
+                    case REC_TOPIC:
+                        readRecommendations(newMessage);
+                        break;
                 }
             }
 
@@ -193,7 +194,8 @@ public class MainActivity extends AppCompatActivity {
                 realTimeDevicesData.add(new RealTimeDeviceData(
                         Integer.parseInt(jsonArray.getJSONObject(i).getString("id")),
                         Integer.parseInt(jsonArray.getJSONObject(i).getString("timestamp")),
-                        Double.parseDouble(jsonArray.getJSONObject(i).getString("wattage"))
+                        Double.parseDouble(jsonArray.getJSONObject(i).getString("wattage")),
+                        jsonArray.getJSONObject(i).getString("onoff")
                 ));
             }
             HomeFragment homeFragment = (HomeFragment) fragmentManager.findFragmentByTag("home");
